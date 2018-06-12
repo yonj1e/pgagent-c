@@ -215,6 +215,7 @@ job(void *arg)
 		termPQExpBuffer(&query);
 	}
 
+	PQfinish(conn);
 	return NULL;
 }
 
@@ -360,6 +361,7 @@ pgagent_main(Datum args)
                                         PQexec(conn, query.data);
                                         termPQExpBuffer(&query);
 
+					PQfinish(conn);
                                         exit(1);
                                 }
 
@@ -372,7 +374,6 @@ pgagent_main(Datum args)
                 }
 		PQclear(res);
 		PQfinish(conn);
-
 
 		sleep(3);
 		MemoryContextReset(pgagent_ctx);
