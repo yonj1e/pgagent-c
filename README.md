@@ -1,6 +1,6 @@
 # pgagent-c
 
-pgagent-c 是以 extension 方式实现的 [pgAgent](https://github.com/postgres/pgagent)，依旧使用 [pgAdmin](https://www.pgadmin.org/) 进行管理，具体使用参考[官方文档](https://www.pgadmin.org/docs/pgadmin3/1.22/pgagent.html)。
+pgagent-c 是以 extension、bgworker 进程方式实现的 [pgAgent](https://github.com/postgres/pgagent)，依旧使用 [pgAdmin](https://www.pgadmin.org/) 进行管理，具体使用参考[官方文档](https://www.pgadmin.org/docs/pgadmin3/1.22/pgagent.html)。
 
 
 
@@ -8,7 +8,7 @@ pgagent-c 是以 extension 方式实现的 [pgAgent](https://github.com/postgres
 
 - 兼容 pgAgent 功能。
 - 以 C 语音编写，不依赖 wxWidgets 等，编译比 pgAgent 更简洁。
-- 以 extension 方式实现，不需要像 pgAgent 一样手动启动进程。
+- 以 extension、bgworker 进程方式实现，不需要像 pgAgent 一样手动启动进程。
 
 
 
