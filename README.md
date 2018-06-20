@@ -44,26 +44,82 @@ make clean; make; make install;
 # add to postgresql.conf:
 shared_preload_libraries = 'pgagent'
 agent.dbname = 'postgres'
+agent.launch = on/off
 ```
 
-**重启数据库**
+pgagent bgworker支持两种启动方式：
 
-重新启动 PostgreSQL 后，可以看到 `bgworker: pgagent_scheduler` 进程和 extension。
+1. 设置`agent.launch = on`，启动数据库随即启动后台工作者进程。
 
-```shell
- #
- 6267 pts/3    S      0:00 /usr/pgsql-10/bin/postgres -D ../data
- 6268 ?        Ss     0:00 postgres: logger process   
- 6270 ?        Ss     0:00 postgres: checkpointer process   
- 6271 ?        Ss     0:00 postgres: writer process   
- 6272 ?        Ss     0:00 postgres: wal writer process   
- 6273 ?        Ss     0:00 postgres: autovacuum launcher process   
- 6274 ?        Ss     0:00 postgres: archiver process   
- 6275 ?        Ss     0:00 postgres: stats collector process   
- 6276 ?        Ss     0:00 postgres: bgworker: pgagent_scheduler   
- 6277 ?        Ss     0:00 postgres: bgworker: logical replication launcher  
+   重新启动 PostgreSQL 后，可以看到 `bgworker: pgagent_scheduler` 进程和 extension。
 
-```
+    ```shell
+     #
+     6267 pts/3    S      0:00 /usr/pgsql-10/bin/postgres -D ../data
+     6268 ?        Ss     0:00 postgres: logger process   
+     6270 ?        Ss     0:00 postgres: checkpointer process   
+     6271 ?        Ss     0:00 postgres: writer process   
+     6272 ?        Ss     0:00 postgres: wal writer process   
+     6273 ?        Ss     0:00 postgres: autovacuum launcher process   
+     6274 ?        Ss     0:00 postgres: archiver process   
+     6275 ?        Ss     0:00 postgres: stats collector process   
+     6276 ?        Ss     0:00 postgres: bgworker: pgagent_scheduler   
+     6277 ?        Ss     0:00 postgres: bgworker: logical replication launcher  
+   
+    ```
+2. 设置`agent.launch = off`，启动数据库时**不**启动后台工作者进程，在需要用到的时候动态注册后台工作者进程，启用pgagent功能。
+
+   ```sql
+   #
+     PID TTY      STAT   TIME COMMAND
+   
+    7419 pts/0    S      0:00 /work/pgsql/pgsql-10/bin/postgres -D ../data
+    7420 ?        Ss     0:00 postgres: logger process   
+    7422 ?        Ss     0:00 postgres: checkpointer process   
+    7423 ?        Ss     0:00 postgres: writer process   
+    7424 ?        Ss     0:00 postgres: wal writer process   
+    7425 ?        Ss     0:00 postgres: autovacuum launcher process   
+    7426 ?        Ss     0:00 postgres: archiver process   
+    7427 ?        Ss     0:00 postgres: stats collector process   
+    7428 ?        Ss     0:00 postgres: bgworker: pg_cron_scheduler   
+    7429 ?        Ss     0:00 postgres: bgworker: logical replication launcher  
+   
+   -- 创建扩展
+   create extension pgagent ;
+   
+   -- 修改agent.launch = on
+   alter system set agent.launch = on;
+   
+   select pg_reload_conf();
+    pg_reload_conf 
+   ----------------
+    t
+   (1 row)
+   
+   -- 启动bgworker进程
+   select pgagent.agent_launch();
+             agent_launch          
+   --------------------------------
+    agent bgworker launch success.
+   (1 row)
+   
+   #
+     PID TTY      STAT   TIME COMMAND
+    7419 pts/0    S      0:00 /work/pgsql/pgsql-10/bin/postgres -D ../data
+    7420 ?        Ss     0:00 postgres: logger process   
+    7422 ?        Ss     0:00 postgres: checkpointer process   
+    7423 ?        Ss     0:00 postgres: writer process   
+    7424 ?        Ss     0:00 postgres: wal writer process   
+    7425 ?        Ss     0:00 postgres: autovacuum launcher process   
+    7426 ?        Ss     0:00 postgres: archiver process   
+    7427 ?        Ss     0:00 postgres: stats collector process   
+    7428 ?        Ss     0:00 postgres: bgworker: pg_cron_scheduler   
+    7429 ?        Ss     0:00 postgres: bgworker: logical replication launcher  
+    7453 ?        Ss     0:00 postgres: yangjie yangjie [local] idle
+    7485 ?        Ss     0:00 postgres: bgworker: pgagent_scheduler 
+   ```
+
+**extension:**
 
 ```sql
 # \dx
