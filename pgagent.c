@@ -58,9 +58,11 @@ PG_MODULE_MAGIC;
 #endif
 
 #define MAXATTEMPTS 10
+#define BUFSZ PIPE_BUF
 
 /* global settings */
 static char     *agentdbname = "postgres";
+static bool	agentlaunch = false;
 
 /* extension */
 void _PG_init(void);
@@ -76,6 +78,11 @@ static void pgagent_sigterm(SIGNAL_ARGS);
 static MemoryContext pgagent_ctx = NULL;
 
 void		*job(void *arg);
+
+PG_FUNCTION_INFO_V1(agent_launch);
+Datum agent_launch(PG_FUNCTION_ARGS);
+
+int get_bgwcount(void);
 
 static void
 pgagent_sighup(SIGNAL_ARGS)
@@ -401,20 +408,141 @@ run_pgagent()
 		GUC_SUPERUSER_ONLY,
 		NULL, NULL, NULL);
 
-	worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
-	worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
-	worker.bgw_notify_pid = 0;
-	worker.bgw_restart_time = 1;
-	worker.bgw_main_arg = (Datum)NULL;
+	DefineCustomBoolVariable(
+		"agent.launch",
+		"Turn on/off, agent launch.",
+		NULL,
+		&agentlaunch,
+		false,
+		PGC_SIGHUP,
+		GUC_SUPERUSER_ONLY,
+		NULL, NULL, NULL);
 
-	sprintf(worker.bgw_library_name, "pgagent");
-	sprintf(worker.bgw_function_name, "pgagent_main");
-	snprintf(worker.bgw_name, BGW_MAXLEN, "pgagent_scheduler");
+	if(agentlaunch)
+	{
+		worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
+		worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
+		worker.bgw_notify_pid = 0;
+		worker.bgw_restart_time = 1;
+		worker.bgw_main_arg = (Datum)NULL;
 
-	RegisterBackgroundWorker(&worker);
+		sprintf(worker.bgw_library_name, "pgagent");
+		sprintf(worker.bgw_function_name, "pgagent_main");
+		snprintf(worker.bgw_name, BGW_MAXLEN, "pgagent_scheduler");
+
+		RegisterBackgroundWorker(&worker);
+	}
 }
 
 void _PG_init(void)
 {
         run_pgagent();
 }
+
+Datum
+agent_launch(PG_FUNCTION_ARGS)
+{
+        BackgroundWorker worker;
+        BackgroundWorkerHandle *handle;
+        BgwHandleStatus status;
+        pid_t           pid;
+
+        char            conninfo[1024];
+        PGconn          *conn;
+        PGresult        *res = NULL;
+        int             bgwcount;
+        bool            launch = false;
+
+        memset(&worker, 0, sizeof(worker));
+        worker.bgw_flags = BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
+        worker.bgw_start_time = BgWorkerStart_RecoveryFinished;
+        worker.bgw_restart_time = 1;
+        worker.bgw_main_arg = (Datum)NULL;
+
+        sprintf(worker.bgw_library_name, "pgagent");
+        sprintf(worker.bgw_function_name, "pgagent_main");
+        snprintf(worker.bgw_name, BGW_MAXLEN, "pgagent_scheduler");
+
+        /* set bgw_notify_pid so that we can use WaitForBackgroundWorkerStartup */
+        worker.bgw_notify_pid = MyProcPid;
+
+        sprintf(conninfo, "dbname = %s", agentdbname);
+
+        conn = PQconnectdb(conninfo);
+
+        if (PQstatus(conn) != CONNECTION_OK)
+        {
+                fprintf(stderr, "Connection to database failed: %s",
+                PQerrorMessage(conn));
+                PQfinish(conn);
+                exit(1);
+        }
+
+        bgwcount = get_bgwcount();
+
+        res = PQexec(conn, "SHOW agent.launch");
+
+	if(strcmp("on", PQgetvalue(res, 0, 0)) == 0)
+		launch = true;
+	else
+		launch = false;
+
+        PQclear(res);
+		
+        if(bgwcount == 0 && launch)
+        {
+                if (!RegisterDynamicBackgroundWorker(&worker, &handle))
+                        PG_RETURN_NULL();
+
+                status = WaitForBackgroundWorkerStartup(handle, &pid);
+
+                if (status == BGWH_STOPPED)
+                        ereport(ERROR,
+                                        (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+                                         errmsg("could not start background process"),
+                                         errhint("More details may be available in the server log.")));
+                if (status == BGWH_POSTMASTER_DIED)
+                        ereport(ERROR,
+                                        (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+                                         errmsg("cannot start background processes without postmaster"),
+                                         errhint("Kill all remaining database processes and restart the database.")));
+                Assert(status == BGWH_STARTED);
+
+                PQfinish(conn);
+                PG_RETURN_TEXT_P(cstring_to_text("agent bgworker launch success."));
+        }
+        else
+        {
+                PQfinish(conn);
+                PG_RETURN_TEXT_P(cstring_to_text("pgagen bgworker launch failed."));
+        }
+}
+
+int
+get_bgwcount()
+{
+        FILE    *fp;
+        int     count = 1;
+        char    buf[BUFSZ];
+        char    command[150];
+
+        sprintf(command, "ps -ef | grep pgagent_scheduler | wc -l");
+
+        if((fp = popen(command, "r")) == NULL)
+        {
+
+        }
+
+        if((fgets(buf, BUFSZ, fp))!= NULL)
+        {
+                count = atoi(buf);
+	}
+
+        pclose(fp);
+	if((count - 2) == 0)
+		return 0;
+	else
+		return count -2;
+}
+
+

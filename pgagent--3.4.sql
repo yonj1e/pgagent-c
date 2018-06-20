@@ -663,4 +663,7 @@ SELECT pg_catalog.pg_extension_config_dump('pga_exception', '');
 SELECT pg_catalog.pg_extension_config_dump('pga_joblog', '');
 SELECT pg_catalog.pg_extension_config_dump('pga_jobsteplog', '');
 
-
+CREATE FUNCTION pgagent.agent_launch()
+RETURNS text
+AS '$libdir/pgagent', 'agent_launch'
+LANGUAGE C STRICT;
